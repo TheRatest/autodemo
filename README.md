@@ -15,8 +15,8 @@ A small NodeJS that uses RCON app to automatically record in-game Open Fortress 
 	- This can also be done for other class config files for autodemo to work with other classes
 6. Open index.js with a text editor of your choice and fill in the first 2 fields (addressLAN & rconPassword) with your LAN address and the port 27019 (e.g "192.168.0.101:27019") and the RCON password you just made
 7. Open the Fortress and make the following binds:
-	- bind <key> "stop; echo Stop Recording"
-	- bind <key> "echo Mark Demo"
+	- bind \<key\> "stop; echo Stop Recording"
+	- bind \<key\> "echo Mark Demo"
 
 ### Usage
 1. Launch start.bat before entering a match
