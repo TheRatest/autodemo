@@ -3,7 +3,8 @@ A small NodeJS that uses RCON app to automatically record in-game Open Fortress 
 
 ### Requirements
 - [NodeJS](https://nodejs.org/en)
-- srcds-rcon (run install-srcds-rcon.bat)
+- srcds-rcon (run install-dependencies.bat)
+- colors (run install-dependencies.bat)
 
 ### Installation
 0. Get all the required stuff

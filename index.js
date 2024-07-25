@@ -1,22 +1,21 @@
 /*	CHANGE THIS TO FIT YOUR NEEDS	*/
-const addressLAN = "192.168.0.101:27015";
-const rconPassword = "";
 const conFile = "../console.log"; // path relative to autodemo
 const demosPathPrefix = "demos/"; // path relative to game folder
-const magicSequenceRecord = "Start recording" // start recording a demo if the game dev console output has this text
-const magicSequenceStop = "Stop recording" // stop recording a demo if the game dev console output has this text
-const magicSequenceSpecial = "Mark demo" // mark a demo as special if the game dev console output has this text
+const magicSequencesRecord = ["Start recording", "recording Start"] // start recording a demo if the game dev console output has this text
+const magicSequencesStop = ["Stop recording", "recording Stop"] // stop recording a demo if the game dev console output has this text
+const magicSequencesSpecial = ["Mark demo", "demo Mark"] // mark a demo as special if the game dev console output has this text
 const demoNameFormat = "YYYY-MM-DD HH-mm-ss";
 const deleteBoringDemos = false; // delete demos that weren't marked as special
 /*==================================*/
 
 const Rcon = require('srcds-rcon');
 let rcon = Rcon({
-	address: addressLAN,
-	password: rconPassword,
+	address: '192.168.88.132:27019',
+	password: 'VeRF2x5N5OmhUTeCvOdD',
 });
 const moment = require('moment');
 const fs = require('fs');
+const colors = require('colors');
 
 const sleep = milliseconds => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds)
 
@@ -27,6 +26,7 @@ let timestampStart = null;
 
 let connected = false;
 let monitorFileInterval = null;
+let startRecordingDebounce = false;
 
 function quit() {
 	clearInterval(monitorFileInterval);
@@ -46,10 +46,12 @@ function currentTime() {
 }
 
 process.on('uncaughtException', function (err) {
-	if(err.code != "ECONNRESET" || !connected)
+	if(err.code != "ECONNRESET" || !connected) {
+		console.error(`[-] Uncaught exception! ${err}`.red);
 		return;
+	}
 	
-	console.log(`[-] Connection dropped!`);
+	console.log(`[?] Connection dropped!`.yellow);
 
 	connected = false;
 	rcon.disconnect();
@@ -60,34 +62,64 @@ process.on('uncaughtException', function (err) {
 	rconConnect();
 });
 
+function resetStartRecordingDebounce() {
+	startRecordingDebounce = false;
+}
+
 function stopRecordingDemo() {
-	if(!isRecordingDemo)
+	if(!isRecordingDemo) {
+		console.log(`[?] Tried to stop recording while not recording`.cyan);
+		//if(connected)
+		//	rcon.command(`stop`);
 		return;
+	}
 	
-	console.log(`[=] Stopping recording...`);
-	if(connected)
-		rcon.command(`stop`);
+	console.log(`[=] Stopping recording...`.yellow);
+	//if(connected)
+	//	rcon.command(`stop`);
 	isRecordingDemo = false;
 	if(deleteBoringDemos && !isSpecialDemo) {
 		fs.unlinkSync(demoName + ".dem");
-		console.log(`[-] Deleted ${demoName}.dem`);
+		console.log(`[+] Deleted ${demoName}.dem`.green);
 	} else {
-		console.log(`[+] Saved ${demoName}.dem`);
+		console.log(`[+] Saved ${demoName}.dem`.green);
 	}
 }
 
 function startRecordingDemo() {
-	if(!connected || isRecordingDemo)
+	if(isRecordingDemo) {
+		console.log(`[?] Tried to start recording while still recording`.cyan);
 		return;
+	}
+	if(!connected) {
+		console.log(`[?] Tried to start recording while not connected`.cyan);
+		return;
+	}
 	
 	isSpecialDemo = false;
 	demoName = demosPathPrefix + moment().format(demoNameFormat);
 	timestampStart = currentTime();
-	rcon.command(`record "${demoName}"`);
-	console.log(`[+] Started recording to ${demoName}.dem`);
-	isRecordingDemo = true;
-	sleep(3000);
-	rcon.command(`status`);
+	rcon.command(`record "${demoName}"`, 500).then(response => {
+		console.log(`[+] Started recording to ${demoName}.dem`.green);
+		isRecordingDemo = true;
+		sleep(3000);
+		requestServerStatus();
+	}).catch(err => {
+		console.error(`[-] Couldn't start recording: ${err}`.red);
+		startRecordingDemo();
+	});
+}
+
+function requestServerStatus() {
+	if(!connected)
+		return;
+	
+	rcon.command(`status`, 4000).then(response => {
+		console.log(`[+] Received status`.green);
+	}).catch(err => {
+		console.error(`[-] Couldn't fetch server status: ${err}`.red);
+		requestServerStatus();
+	});
 }
 
 function monitorFile() {
@@ -101,42 +133,60 @@ function monitorFile() {
 		const line = lines[i].trim();
 		if(line === "")
 			continue;
-
-		if(line == magicSequenceRecord && !isRecordingDemo) {
-			console.log(`[=] Starting recording...`);
-			startRecordingDemo();
-		}
-		if(line == magicSequenceStop) {
-			stopRecordingDemo();
-		}
-		if(line == magicSequenceSpecial) {
-			if(!isRecordingDemo)
-				continue;
-			
-			let isFirstSpecialMoment = false;
-			
-			if(!isSpecialDemo) {
-				isFirstSpecialMoment = true;
-				console.log(`[+] Current demo marked as special`);
+		
+		for(i = 0; i < magicSequencesRecord.length; i++) {
+			magicSequenceRecord = magicSequencesRecord[i];
+			if(line == magicSequenceRecord) {
+				if(startRecordingDebounce) {
+					startRecordingDebounce = false;
+					continue;
+				} else {
+					startRecordingDebounce = true;
+					setTimeout(resetStartRecordingDebounce, 500);
+				}
+				console.log(`[=] Starting recording...`.yellow);
+				startRecordingDemo();
 			}
-			
-			isSpecialDemo = true;
-			
-			let markedTime = currentTime() - timestampStart;
-			let hours = Math.floor(markedTime / 60 / 60);
-			let minutes = Math.floor(markedTime / 60 % 60);
-			let seconds = Math.floor(markedTime % 60);
-			let strHours = hours > 9 ? hours : "0" + hours;
-			let strMinutes = minutes > 9 ? minutes : "0" + minutes;
-			let strSeconds = seconds > 9 ? seconds : "0" + seconds;
-			let strMarkedTime = `${strHours}:${strMinutes}:${strSeconds}`;
-			console.log(`[+] Marked time: ${strMarkedTime}`);
-			
-			if(isFirstSpecialMoment) {
-				const newData = new Uint8Array(Buffer.from(`Special moments:\n${strMarkedTime}\n`));
-				fs.writeFile("../" + demoName + ".txt", newData, function() {});
-			} else {
-				fs.appendFile("../" + demoName + ".txt", `${strMarkedTime}\n`, function() {});
+		}
+		
+		for(i = 0; i < magicSequencesStop.length; i++) {
+			magicSequenceStop = magicSequencesStop[i];
+			if(line == magicSequenceStop) {
+				stopRecordingDemo();
+			}
+		}
+		
+		for(i = 0; i < magicSequencesSpecial.length; i++) {
+			magicSequenceSpecial = magicSequencesSpecial[i];
+			if(line == magicSequenceSpecial) {
+				if(!isRecordingDemo)
+					continue;
+				
+				let isFirstSpecialMoment = false;
+				
+				if(!isSpecialDemo) {
+					isFirstSpecialMoment = true;
+					console.log(`[+] Current demo marked as special`.green);
+				}
+				
+				isSpecialDemo = true;
+				
+				let markedTime = currentTime() - timestampStart;
+				let hours = Math.floor(markedTime / 60 / 60);
+				let minutes = Math.floor(markedTime / 60 % 60);
+				let seconds = Math.floor(markedTime % 60);
+				let strHours = hours > 9 ? hours : "0" + hours;
+				let strMinutes = minutes > 9 ? minutes : "0" + minutes;
+				let strSeconds = seconds > 9 ? seconds : "0" + seconds;
+				let strMarkedTime = `${strHours}:${strMinutes}:${strSeconds}`;
+				console.log(`[+] Marked time: ${strMarkedTime}`.green);
+				
+				if(isFirstSpecialMoment) {
+					const newData = new Uint8Array(Buffer.from(`Special moments:\n${strMarkedTime}\n`));
+					fs.writeFile("../" + demoName + ".txt", newData, function() {});
+				} else {
+					fs.appendFile("../" + demoName + ".txt", `${strMarkedTime}\n`, function() {});
+				}
 			}
 		}
 	}
@@ -144,16 +194,16 @@ function monitorFile() {
 
 function rconConnect() {
 	rcon.connect().then(() => {
-		console.log(`[+] Connected to client rcon`);
+		console.log(`[+] Connected to client rcon`.green);
 			connected = true;
 		
 		if(monitorFileInterval != null)
 			clearInterval(monitorFileInterval);
 		
-		monitorFileInterval = setInterval(monitorFile, 500);
+		monitorFileInterval = setInterval(monitorFile, 100);
 		eraseConLog();
 	}).catch((err) => {
-		sleep(4000);
+		sleep(3000);
 		rconConnect();
 	});
 }

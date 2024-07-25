@@ -9,6 +9,7 @@
   "author": "ratest",
   "license": "MIT",
   "dependencies": {
+    "colors": "^1.4.0",
     "moment": "^2.30.1",
     "srcds-rcon": "^2.2.1"
   }
